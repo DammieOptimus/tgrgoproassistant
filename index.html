@@ -394,14 +394,8 @@
                     <div id="login-view">
                         <h3>Login</h3>
                         <form id="login-form">
-                            <div class="form-group">
-                                <label for="login-email">Email</label>
-                                <input type="email" id="login-email" required>
-                            </div>
-                            <div class="form-group">
-                                <label for="login-password">Password</label>
-                                <input type="password" id="login-password" required>
-                            </div>
+                            <div class="form-group"><label for="login-email">Email</label><input type="email" id="login-email" required></div>
+                            <div class="form-group"><label for="login-password">Password</label><input type="password" id="login-password" required></div>
                             <button type="submit" class="btn-primary">Login</button>
                         </form>
                         <p>Don't have an account? <a href="#" id="show-signup">Sign Up</a></p>
@@ -409,30 +403,17 @@
                     <div id="signup-view" class="hidden">
                         <h3>Sign Up</h3>
                         <form id="signup-form">
-                             <div class="form-group">
-                                <label for="signup-name">Full Name</label>
-                                <input type="text" id="signup-name" required>
-                            </div>
-                            <div class="form-group">
-                                <label for="signup-tgr-username">TGR Username</label>
-                                <input type="text" id="signup-tgr-username" required>
-                            </div>
-                            <div class="form-group">
-                                <label for="signup-email">Email</label>
-                                <input type="email" id="signup-email" required>
-                            </div>
-                            <div class="form-group">
-                                <label for="signup-password">Password (min. 6 characters)</label>
-                                <input type="password" id="signup-password" required minlength="6">
-                            </div>
-                            <button type="submit" class="btn-primary">Sign Up</button>
+                             <div class="form-group"><label for="signup-name">Full Name</label><input type="text" id="signup-name" required></div>
+                             <div class="form-group"><label for="signup-tgr-username">TGR Username</label><input type="text" id="signup-tgr-username" required></div>
+                             <div class="form-group"><label for="signup-email">Email</label><input type="email" id="signup-email" required></div>
+                             <div class="form-group"><label for="signup-password">Password (min. 6 characters)</label><input type="password" id="signup-password" required minlength="6"></div>
+                             <button type="submit" class="btn-primary">Sign Up</button>
                         </form>
                         <p>Already have an account? <a href="#" id="show-login">Login</a></p>
                     </div>
                     <p id="auth-error" class="error-message"></p>
                 </div>
             `;
-            // KEY FIX: Attach all event listeners AFTER rendering the HTML
             document.getElementById('show-signup').addEventListener('click', (e) => { e.preventDefault(); document.getElementById('login-view').classList.add('hidden'); document.getElementById('signup-view').classList.remove('hidden'); });
             document.getElementById('show-login').addEventListener('click', (e) => { e.preventDefault(); document.getElementById('signup-view').classList.add('hidden'); document.getElementById('login-view').classList.remove('hidden'); });
             document.getElementById('login-form').addEventListener('submit', handleLogin);
@@ -461,7 +442,6 @@
                 <div class="card"><h3>Today's Follow-Ups</h3><div id="follow-ups-list">${followUpsHtml}</div></div>
                 <button id="add-prospect-btn" class="btn btn-primary">Add New Prospect</button>
             `;
-            // KEY FIX: Attach listener after rendering
             document.getElementById('add-prospect-btn').addEventListener('click', () => renderAddProspectModal());
         }
 
@@ -487,6 +467,10 @@
 
         function renderProspectDetailPage(container, prospectId) {
             const prospect = getProspectById(prospectId);
+            if (!prospect) {
+                container.innerHTML = `<h2>Prospect not found.</h2><a href="#prospects">Back to list</a>`;
+                return;
+            }
             const interactions = getInteractionsForProspect(prospectId);
             let interactionsHtml = '<li>No interactions logged yet.</li>';
             if(interactions.length > 0) {
@@ -499,6 +483,7 @@
                 `).join('');
             }
             container.innerHTML = `
+                <a href="#prospects" style="margin-bottom:1rem; display:inline-block;">← Back to All Prospects</a>
                 <h2>${prospect.firstName} ${prospect.lastName}</h2>
                 <div class="card">
                     <p><strong>Status:</strong> <span class="status-badge status-${prospect.status.toLowerCase().replace(/ /g, '-')}">${prospect.status}</span></p>
@@ -549,12 +534,13 @@
                 };
                 addProspect(prospectData);
                 modalContainer.innerHTML = '';
-                router(); // Refresh the page
+                window.location.hash = '#prospects'; // Navigate to prospects list
+                router();
             });
         }
 
         function renderInvitationWizard(prospect) {
-            let wizardState = { currentStep: 1, invitationType: null, tool: TGR_TOOLS[0], commitmentDate: null, followUpDate: null };
+            let wizardState = { currentStep: 1, invitationType: null, tool: TGR_TOOLS[0], followUpDate: null };
 
             const render = () => {
                 let stepContent = '';
@@ -578,7 +564,7 @@
                         showNext = false;
                         break;
                     case 4:
-                        let toolsOptions = TGR_TOOLS.map(t => `<option value="${t}">${t}</option>`).join('');
+                        let toolsOptions = TGR_TOOLS.map(t => `<option value="${t}" ${t === wizardState.tool ? 'selected' : ''}>${t}</option>`).join('');
                         stepContent = `<h3>Step 4: If I, Would You?</h3><p>This is the magic question. You are offering something of value in exchange for their time.</p>
                            <div class="form-group"><label for="tool-select">Select a Tool to Share:</label><select id="tool-select">${toolsOptions}</select></div>
                            <div class="script-box"><strong>Script:</strong> "If I sent you a link to the <span id="tool-name-span">${wizardState.tool}</span>, would you check it out?"</div>`;
@@ -600,7 +586,7 @@
                     case 8:
                         stepContent = `<h3>Step 8: Get off the Phone!</h3><p>You were in a hurry, remember? End the call quickly.</p>
                                        <div class="script-box"><strong>Script:</strong> "Great, we’ll talk then. Gotta run!"</div>`;
-                        showFinish = true; showNext = false; // Can finish from this step too
+                        showFinish = true; showNext = false;
                         break;
                 }
                 
@@ -631,7 +617,6 @@
                     }
                 }
 
-                // Log the interaction and update the prospect
                 logInteraction({
                     prospectId: prospect.id,
                     type: 'Invitation Sent',
@@ -648,7 +633,7 @@
                 alert("Invitation logged and follow-up scheduled!");
                 modalContainer.innerHTML = '';
                 window.location.hash = `#prospects/${prospect.id}`;
-                router(); // Refresh the view
+                router();
             };
 
             const attachListeners = () => {
@@ -785,7 +770,7 @@
             const modalHtml = `
             <div class="modal-overlay">
                 <div class="modal-content">
-                    <button class="modal-close-btn" id="close-game-plan-modal">×</button>
+                    <button class="modal-close-btn">×</button>
                     <h3>Game Plan for ${prospect.firstName}</h3>
                     <h4>Part 1: Validate Their Decision</h4>
                     <div class="script-box">"Congratulations on making the decision. I’m proud of you for taking charge of your life. From now on, things are going to be different for you and your family."</div>
@@ -807,7 +792,7 @@
             </div>`;
             modalContainer.innerHTML = modalHtml;
 
-            modalContainer.querySelector('#close-game-plan-modal').addEventListener('click', () => modalContainer.innerHTML = '');
+            modalContainer.querySelector('.modal-close-btn').addEventListener('click', () => modalContainer.innerHTML = '');
             modalContainer.querySelector('#save-game-plan').addEventListener('click', () => {
                 updateProspect(prospect.id, { status: 'New Distributor' });
                 logInteraction({
