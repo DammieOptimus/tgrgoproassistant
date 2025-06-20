@@ -224,9 +224,14 @@
          */
         function saveDB() {
             if (!db) return;
-            const data = db.export();
-            localStorage.setItem('tgr_assistant_db', JSON.stringify(Array.from(data)));
-            console.log("Database saved to localStorage.");
+            try {
+                const data = db.export();
+                localStorage.setItem('tgr_assistant_db', JSON.stringify(Array.from(data)));
+                console.log("Database saved to localStorage.");
+            } catch(e) {
+                console.error("Failed to save database:", e);
+                alert("Warning: Could not save application data. Any changes made may not persist after you close the browser.");
+            }
         }
 
         /**
@@ -264,8 +269,14 @@
             const email = document.getElementById('signup-email').value;
             const password = document.getElementById('signup-password').value;
             const errorEl = document.getElementById('auth-error');
+            errorEl.textContent = ''; // Clear previous errors
 
-            const existingUser = db.exec(`SELECT id FROM users WHERE email = '${email}'`);
+            if (!name || !tgrUsername || !email || !password) {
+                errorEl.textContent = 'All fields are required.';
+                return;
+            }
+
+            const existingUser = db.exec(`SELECT id FROM users WHERE email = ?`, [email]);
             if (existingUser.length > 0) {
                 errorEl.textContent = 'An account with this email already exists.';
                 return;
@@ -291,6 +302,12 @@
             const email = document.getElementById('login-email').value;
             const password = document.getElementById('login-password').value;
             const errorEl = document.getElementById('auth-error');
+            errorEl.textContent = ''; // Clear previous errors
+
+            if (!email || !password) {
+                errorEl.textContent = 'Email and password are required.';
+                return;
+            }
 
             const password_hash = await hashPassword(password);
             try {
@@ -318,10 +335,9 @@
         }
 
         // --- DATA SERVICE LOGIC (CRUD FUNCTIONS) ---
-        // Prospects
         function addProspect(data) {
-            db.run("INSERT INTO prospects (ownerId, firstName, lastName, source, phone, status) VALUES (?, ?, ?, ?, ?, ?)", 
-                [appState.currentUser.id, data.firstName, data.lastName, data.source, data.phone, 'New']);
+            db.run("INSERT INTO prospects (ownerId, firstName, lastName, source, phone, status, createdAt) VALUES (?, ?, ?, ?, ?, 'New', CURRENT_TIMESTAMP)", 
+                [appState.currentUser.id, data.firstName, data.lastName, data.source, data.phone]);
             saveDB();
         }
         function fetchProspects() {
@@ -339,9 +355,8 @@
             saveDB();
         }
         
-        // Interactions
         function logInteraction(data) {
-            db.run("INSERT INTO interactions (prospectId, ownerId, type, notes, outcome) VALUES (?, ?, ?, ?, ?)", 
+            db.run("INSERT INTO interactions (prospectId, ownerId, type, notes, outcome, createdAt) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)", 
                 [data.prospectId, appState.currentUser.id, data.type, data.notes, data.outcome]);
             saveDB();
         }
@@ -350,7 +365,6 @@
             return resultsToObjectArray(results);
         }
 
-        // Dashboard
         function fetchTodaysFollowUps() {
             const todayISO = new Date().toISOString();
             const results = db.exec(`SELECT * FROM prospects WHERE ownerId = ${appState.currentUser.id} AND nextFollowUpDate IS NOT NULL AND nextFollowUpDate <= '${todayISO}'`);
@@ -367,13 +381,177 @@
 
         // --- UI RENDERER LOGIC ---
 
-        function renderNavbar(user) { /* ... (Same as before) ... */ }
-        function renderLoginPage() { /* ... (Same as before) ... */ }
-        function renderDashboardPage(container) { /* ... (Same as before) ... */ }
-        function renderProspectsPage(container) { /* ... (Same as before) ... */ }
-        function renderProspectDetailPage(container, prospectId) { /* ... (Same as before) ... */ }
+        function renderNavbar(user) {
+            const userName = user ? user.name : 'User';
+            return `<nav class="navbar"><a href="#dashboard" class="navbar-brand">TGR Assistant</a><div class="navbar-links"><span>Welcome, ${userName}</span><a href="#dashboard">Dashboard</a><a href="#prospects">Prospects</a><a href="#" id="logout-btn">Logout</a></div></nav>`;
+        }
+
+        function renderLoginPage() {
+            appContainer.innerHTML = `
+                <div class="auth-container card">
+                    <h2>TGR Go Pro Assistant</h2>
+                    <p>Login or create an account to get started.</p>
+                    <div id="login-view">
+                        <h3>Login</h3>
+                        <form id="login-form">
+                            <div class="form-group">
+                                <label for="login-email">Email</label>
+                                <input type="email" id="login-email" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="login-password">Password</label>
+                                <input type="password" id="login-password" required>
+                            </div>
+                            <button type="submit" class="btn-primary">Login</button>
+                        </form>
+                        <p>Don't have an account? <a href="#" id="show-signup">Sign Up</a></p>
+                    </div>
+                    <div id="signup-view" class="hidden">
+                        <h3>Sign Up</h3>
+                        <form id="signup-form">
+                             <div class="form-group">
+                                <label for="signup-name">Full Name</label>
+                                <input type="text" id="signup-name" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="signup-tgr-username">TGR Username</label>
+                                <input type="text" id="signup-tgr-username" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="signup-email">Email</label>
+                                <input type="email" id="signup-email" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="signup-password">Password (min. 6 characters)</label>
+                                <input type="password" id="signup-password" required minlength="6">
+                            </div>
+                            <button type="submit" class="btn-primary">Sign Up</button>
+                        </form>
+                        <p>Already have an account? <a href="#" id="show-login">Login</a></p>
+                    </div>
+                    <p id="auth-error" class="error-message"></p>
+                </div>
+            `;
+            // KEY FIX: Attach all event listeners AFTER rendering the HTML
+            document.getElementById('show-signup').addEventListener('click', (e) => { e.preventDefault(); document.getElementById('login-view').classList.add('hidden'); document.getElementById('signup-view').classList.remove('hidden'); });
+            document.getElementById('show-login').addEventListener('click', (e) => { e.preventDefault(); document.getElementById('signup-view').classList.add('hidden'); document.getElementById('login-view').classList.remove('hidden'); });
+            document.getElementById('login-form').addEventListener('submit', handleLogin);
+            document.getElementById('signup-form').addEventListener('submit', handleSignUp);
+        }
+
+        function renderDashboardPage(container) {
+            const followUps = fetchTodaysFollowUps();
+            const stats = fetchDashboardStats();
+            let followUpsHtml = '<h4>No follow-ups scheduled for today. Great job!</h4>';
+            if(followUps.length > 0) {
+                followUpsHtml = followUps.map(p => `
+                    <div class="prospect-list-item" onclick="window.location.hash='#prospects/${p.id}'">
+                        <span><strong>${p.firstName} ${p.lastName}</strong></span>
+                        <span class="status-badge status-follow-up">Follow Up Due</span>
+                    </div>
+                `).join('');
+            }
+            container.innerHTML = `
+                <h2>Dashboard</h2>
+                <div class="dashboard-grid">
+                    <div class="card"><h3>Total Prospects</h3><p style="font-size: 2rem; font-weight: bold;">${stats.totalProspects}</p></div>
+                    <div class="card"><h3>New Distributors</h3><p style="font-size: 2rem; font-weight: bold;">${stats.totalDistributors}</p></div>
+                    <div class="card"><h3>Customers</h3><p style="font-size: 2rem; font-weight: bold;">${stats.totalCustomers}</p></div>
+                </div>
+                <div class="card"><h3>Today's Follow-Ups</h3><div id="follow-ups-list">${followUpsHtml}</div></div>
+                <button id="add-prospect-btn" class="btn btn-primary">Add New Prospect</button>
+            `;
+            // KEY FIX: Attach listener after rendering
+            document.getElementById('add-prospect-btn').addEventListener('click', () => renderAddProspectModal());
+        }
+
+        function renderProspectsPage(container) {
+            const prospects = fetchProspects();
+            let prospectListHtml = '<h4>You have no prospects yet. Add one to get started!</h4>';
+            if (prospects.length > 0) {
+                prospectListHtml = prospects.map(p => `
+                    <div class="prospect-list-item" onclick="window.location.hash='#prospects/${p.id}'">
+                        <div><strong>${p.firstName} ${p.lastName}</strong><br><small>Source: ${p.source || 'N/A'}</small></div>
+                        <span class="status-badge status-${p.status.toLowerCase().replace(/ /g, '-')}">${p.status}</span>
+                    </div>
+                `).join('');
+            }
+            container.innerHTML = `
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+                    <h2>My Prospects</h2><button id="add-prospect-btn-list" class="btn btn-primary">Add New Prospect</button>
+                </div>
+                <div class="card">${prospectListHtml}</div>
+            `;
+            document.getElementById('add-prospect-btn-list').addEventListener('click', () => renderAddProspectModal());
+        }
+
+        function renderProspectDetailPage(container, prospectId) {
+            const prospect = getProspectById(prospectId);
+            const interactions = getInteractionsForProspect(prospectId);
+            let interactionsHtml = '<li>No interactions logged yet.</li>';
+            if(interactions.length > 0) {
+                interactionsHtml = interactions.map(i => `
+                    <li>
+                        <strong>${i.type}</strong> - ${new Date(i.createdAt).toLocaleString()}
+                        <p style="margin: 0.25rem 0;">${i.notes || ''}</p>
+                        ${i.outcome ? `<p style="margin: 0.25rem 0;"><em>Outcome: ${i.outcome}</em></p>` : ''}
+                    </li>
+                `).join('');
+            }
+            container.innerHTML = `
+                <h2>${prospect.firstName} ${prospect.lastName}</h2>
+                <div class="card">
+                    <p><strong>Status:</strong> <span class="status-badge status-${prospect.status.toLowerCase().replace(/ /g, '-')}">${prospect.status}</span></p>
+                    <p><strong>Source:</strong> ${prospect.source}</p>
+                    <p><strong>Phone:</strong> ${prospect.phone || 'N/A'}</p>
+                    <div style="margin-top: 1rem; display: flex; gap: 1rem; flex-wrap: wrap;">
+                        <button id="invite-btn" class="btn btn-primary">Start Invitation Flow</button>
+                        <button id="followup-btn" class="btn btn-primary">Log Follow-up</button>
+                        <button id="gameplan-btn" class="btn btn-secondary">Start Game Plan Interview</button>
+                    </div>
+                </div>
+                <div class="card">
+                    <h3>Interaction History</h3>
+                    <ul style="list-style-type: disc; padding-left: 20px;">${interactionsHtml}</ul>
+                </div>
+            `;
+            document.getElementById('invite-btn').addEventListener('click', () => renderInvitationWizard(prospect));
+            document.getElementById('followup-btn').addEventListener('click', () => renderFollowUpModal(prospect));
+            document.getElementById('gameplan-btn').addEventListener('click', () => renderGamePlanInterview(prospect));
+        }
 
         // --- FULLY IMPLEMENTED MODAL RENDERERS ---
+
+        function renderAddProspectModal() {
+            const modalHtml = `
+            <div class="modal-overlay">
+                <div class="modal-content">
+                    <button class="modal-close-btn">×</button>
+                    <h3>Add New Prospect</h3>
+                    <form id="add-prospect-form">
+                        <div class="form-group"><label for="prospect-firstname">First Name</label><input type="text" id="prospect-firstname" required></div>
+                        <div class="form-group"><label for="prospect-lastname">Last Name</label><input type="text" id="prospect-lastname" required></div>
+                        <div class="form-group"><label for="prospect-source">Source (e.g., Warm Market, Referral)</label><input type="text" id="prospect-source" required></div>
+                        <div class="form-group"><label for="prospect-phone">Phone (Optional)</label><input type="tel" id="prospect-phone"></div>
+                        <button type="submit" class="btn-primary">Save Prospect</button>
+                    </form>
+                </div>
+            </div>`;
+            modalContainer.innerHTML = modalHtml;
+            modalContainer.querySelector('.modal-close-btn').addEventListener('click', () => modalContainer.innerHTML = '');
+            modalContainer.querySelector('#add-prospect-form').addEventListener('submit', (e) => {
+                e.preventDefault();
+                const prospectData = {
+                    firstName: document.getElementById('prospect-firstname').value,
+                    lastName: document.getElementById('prospect-lastname').value,
+                    source: document.getElementById('prospect-source').value,
+                    phone: document.getElementById('prospect-phone').value,
+                };
+                addProspect(prospectData);
+                modalContainer.innerHTML = '';
+                router(); // Refresh the page
+            });
+        }
 
         function renderInvitationWizard(prospect) {
             let wizardState = { currentStep: 1, invitationType: null, tool: TGR_TOOLS[0], commitmentDate: null, followUpDate: null };
@@ -407,12 +585,11 @@
                         break;
                     case 5:
                         stepContent = `<h3>Step 5: Get a Time Commitment</h3><p>Pin them down to a specific time they will review the tool.</p>
-                                       <div class="script-box"><strong>Script:</strong> "When do you think you could watch it for sure?"</div>
-                                       <div class="form-group"><label for="commitment-date">Prospect's Commitment Time:</label><input type="datetime-local" id="commitment-date"></div>`;
+                                       <div class="script-box"><strong>Script:</strong> "When do you think you could watch it for sure?"</div>`;
                         break;
                     case 6:
                         stepContent = `<h3>Step 6: Confirm Commitment</h3><p>Re-confirming the time commitment dramatically increases the chance they will do it.</p>
-                                       <div class="script-box"><strong>Script:</strong> "So, if I called you Wednesday morning, you’ll have seen it for sure, right?"</div>`;
+                                       <div class="script-box"><strong>Script:</strong> "So, if I called you tomorrow morning, you’ll have seen it for sure, right?"</div>`;
                         break;
                     case 7:
                         stepContent = `<h3>Step 7: Schedule the Next Call</h3><p>This is the most critical step. Set the next appointment while you are on the phone.</p>
@@ -423,6 +600,7 @@
                     case 8:
                         stepContent = `<h3>Step 8: Get off the Phone!</h3><p>You were in a hurry, remember? End the call quickly.</p>
                                        <div class="script-box"><strong>Script:</strong> "Great, we’ll talk then. Gotta run!"</div>`;
+                        showFinish = true; showNext = false; // Can finish from this step too
                         break;
                 }
                 
@@ -444,14 +622,44 @@
                 attachListeners();
             };
 
+            const finishWizard = () => {
+                if(wizardState.currentStep === 7) {
+                    wizardState.followUpDate = modalContainer.querySelector('#followup-date').value;
+                    if (!wizardState.followUpDate) {
+                        alert("Please set a follow-up date.");
+                        return;
+                    }
+                }
+
+                // Log the interaction and update the prospect
+                logInteraction({
+                    prospectId: prospect.id,
+                    type: 'Invitation Sent',
+                    notes: `Used ${wizardState.invitationType || 'unspecified'} approach. Sent tool: ${wizardState.tool}.`,
+                    outcome: wizardState.followUpDate ? `Follow-up scheduled for ${new Date(wizardState.followUpDate).toLocaleString()}` : 'Invitation process completed.'
+                });
+                
+                let prospectUpdate = { status: 'Invited' };
+                if(wizardState.followUpDate) {
+                    prospectUpdate.nextFollowUpDate = new Date(wizardState.followUpDate).toISOString();
+                }
+                updateProspect(prospect.id, prospectUpdate);
+
+                alert("Invitation logged and follow-up scheduled!");
+                modalContainer.innerHTML = '';
+                window.location.hash = `#prospects/${prospect.id}`;
+                router(); // Refresh the view
+            };
+
             const attachListeners = () => {
                 modalContainer.querySelector('.modal-close-btn').addEventListener('click', () => modalContainer.innerHTML = '');
                 const backBtn = modalContainer.querySelector('#wizard-back');
                 if (backBtn) backBtn.addEventListener('click', () => { currentStep--; render(); });
                 const nextBtn = modalContainer.querySelector('#wizard-next');
                 if (nextBtn) nextBtn.addEventListener('click', () => { currentStep++; render(); });
+                const finishBtn = modalContainer.querySelector('#wizard-finish');
+                if(finishBtn) finishBtn.addEventListener('click', finishWizard);
                 
-                // Step 3 Listeners
                 if (currentStep === 3) {
                     modalContainer.querySelectorAll('[data-type]').forEach(btn => {
                         btn.addEventListener('click', e => {
@@ -463,45 +671,16 @@
                             else if (wizardState.invitationType === 'super-indirect') scriptText = `<strong>Super Indirect Script:</strong> "The business I’m in clearly isn’t for you, but I wanted to ask, who do you know that is ambitious, money-motivated, and would be excited about the idea of adding more cash flow to their lives?"`;
                             scriptBox.innerHTML = scriptText;
                             scriptBox.style.display = 'block';
-                            nextBtn.classList.remove('hidden');
+                            if(nextBtn) nextBtn.classList.remove('hidden');
                         });
                     });
                 }
 
-                // Step 4 Listener
                 if(currentStep === 4) {
                     const toolSelect = modalContainer.querySelector('#tool-select');
                     toolSelect.addEventListener('change', e => {
                         wizardState.tool = e.target.value;
                         modalContainer.querySelector('#tool-name-span').textContent = wizardState.tool;
-                    });
-                }
-                
-                // Step 7 Finish Listener
-                const finishBtn = modalContainer.querySelector('#wizard-finish');
-                if (finishBtn) {
-                    finishBtn.addEventListener('click', () => {
-                        wizardState.followUpDate = modalContainer.querySelector('#followup-date').value;
-                        if (!wizardState.followUpDate) {
-                            alert("Please set a follow-up date.");
-                            return;
-                        }
-
-                        // Log the interaction and update the prospect
-                        logInteraction({
-                            prospectId: prospect.id,
-                            type: 'Invitation Sent',
-                            notes: `Used ${wizardState.invitationType} approach. Sent tool: ${wizardState.tool}.`,
-                            outcome: `Follow-up scheduled for ${new Date(wizardState.followUpDate).toLocaleString()}`
-                        });
-                        updateProspect(prospect.id, {
-                            status: 'Invited',
-                            nextFollowUpDate: new Date(wizardState.followUpDate).toISOString()
-                        });
-
-                        alert("Invitation logged and follow-up scheduled!");
-                        modalContainer.innerHTML = '';
-                        router(); // Refresh the view
                     });
                 }
             };
@@ -525,9 +704,9 @@
                                <button id="save-reschedule" class="btn-primary">Save New Time</button>`;
                 } else if (view === 'yes') {
                     content = `<h3>Log Follow-up Outcome</h3>
-                               <div class="form-group"><label>What did you like best?</label><div class="script-box">Ask them: "What did you like best?"</div><textarea id="liked-best-notes" rows="3"></textarea></div>
-                               <div class="form-group"><label>On a scale of 1 to 10...</label><div class="script-box">Ask them: "On a scale of 1 to 10, with 1 being 'not interested' and 10 being 'ready to get started right now,' where are you?"</div><input type="number" id="interest-scale" min="1" max="10"></div>
-                               <button id="objection-vault-btn" class="btn-secondary">Need Help with Objections?</button>
+                               <div class="form-group"><label>What did you like best?</label><div class="script-box">Ask them: "What did you like best?"</div><textarea id="liked-best-notes" rows="3" placeholder="Log their answer here..."></textarea></div>
+                               <div class="form-group"><label>On a scale of 1 to 10...</label><div class="script-box">Ask them: "On a scale of 1 to 10, with 1 being 'not interested' and 10 being 'ready to get started right now,' where are you?"</div><input type="number" id="interest-scale" min="1" max="10" placeholder="Enter 1-10"></div>
+                               <button id="objection-vault-btn" class="btn-secondary" style="margin-bottom: 1rem;">Need Help with Objections?</button>
                                <hr style="margin: 1.5rem 0;">
                                <div class="form-group"><label for="next-exposure-date">Schedule Next Exposure/Follow-up:</label><input type="datetime-local" id="next-exposure-date"></div>
                                <button id="save-follow-up" class="btn-primary">Log this Follow-up</button>`;
@@ -541,10 +720,41 @@
                 if (yesBtn) yesBtn.addEventListener('click', () => render('yes'));
                 const noBtn = modalContainer.querySelector('#follow-up-no');
                 if (noBtn) noBtn.addEventListener('click', () => render('no'));
+                
                 const saveRescheduleBtn = modalContainer.querySelector('#save-reschedule');
-                if (saveRescheduleBtn) saveRescheduleBtn.addEventListener('click', () => { /* Logic to save reschedule */ });
+                if (saveRescheduleBtn) saveRescheduleBtn.addEventListener('click', () => {
+                    const newDate = document.getElementById('reschedule-date').value;
+                    if(!newDate) { alert("Please set a new time."); return; }
+                    updateProspect(prospect.id, { nextFollowUpDate: new Date(newDate).toISOString() });
+                    logInteraction({ prospectId: prospect.id, type: 'Follow-up Call', outcome: 'Rescheduled' });
+                    alert('Follow-up rescheduled!');
+                    modalContainer.innerHTML = '';
+                    router();
+                });
+
                 const saveFollowUpBtn = modalContainer.querySelector('#save-follow-up');
-                if (saveFollowUpBtn) saveFollowUpBtn.addEventListener('click', () => { /* Logic to save full follow-up */ });
+                if (saveFollowUpBtn) saveFollowUpBtn.addEventListener('click', () => {
+                    const likedBest = document.getElementById('liked-best-notes').value;
+                    const scale = document.getElementById('interest-scale').value;
+                    const nextDate = document.getElementById('next-exposure-date').value;
+                    
+                    logInteraction({ 
+                        prospectId: prospect.id, 
+                        type: 'Follow-up Call', 
+                        notes: `What they liked best: ${likedBest}`,
+                        outcome: `Interest scale: ${scale}/10.`
+                    });
+
+                    updateProspect(prospect.id, { 
+                        status: 'Follow-up', 
+                        nextFollowUpDate: nextDate ? new Date(nextDate).toISOString() : null 
+                    });
+
+                    alert('Follow-up logged successfully!');
+                    modalContainer.innerHTML = '';
+                    router();
+                });
+
                 const objectionBtn = modalContainer.querySelector('#objection-vault-btn');
                 if (objectionBtn) objectionBtn.addEventListener('click', () => renderObjectionVaultModal());
             };
@@ -565,30 +775,105 @@
                     <div class="script-box">${a}</div>
                 </div>`).join('');
             
-            const modalHtml = `<div class="modal-overlay"><div class="modal-content" style="max-width: 700px;"><button class="modal-close-btn">×</button><h3>Objection Handling Vault</h3>${objectionsHtml}</div></div>`;
-            modalContainer.innerHTML += modalHtml; // Append instead of replace to show over another modal
-            modalContainer.querySelector('.modal-close-btn').addEventListener('click', e => e.target.closest('.modal-overlay').remove());
+            const vaultModal = document.createElement('div');
+            vaultModal.innerHTML = `<div class="modal-overlay"><div class="modal-content" style="max-width: 700px;"><button class="modal-close-btn">×</button><h3>Objection Handling Vault</h3>${objectionsHtml}</div></div>`;
+            modalContainer.appendChild(vaultModal);
+            vaultModal.querySelector('.modal-close-btn').addEventListener('click', () => vaultModal.remove());
         }
 
         function renderGamePlanInterview(prospect) {
-            // ... (Full implementation of this modal with its specific scripts and checklists, following the same pattern as the Invitation Wizard)
+            const modalHtml = `
+            <div class="modal-overlay">
+                <div class="modal-content">
+                    <button class="modal-close-btn" id="close-game-plan-modal">×</button>
+                    <h3>Game Plan for ${prospect.firstName}</h3>
+                    <h4>Part 1: Validate Their Decision</h4>
+                    <div class="script-box">"Congratulations on making the decision. I’m proud of you for taking charge of your life. From now on, things are going to be different for you and your family."</div>
+                    
+                    <h4>Part 2: Set Expectations</h4>
+                    <div class="checklist-item"><input type="checkbox"><label>If you succeed in this business, it’s you who creates that success... I’m here to guide you, but not do it for you.</label></div>
+                    <div class="checklist-item"><input type="checkbox"><label>My job is to help you become independent from me as quickly as possible. Do you agree that’s a good goal?</label></div>
+                    <div class="checklist-item"><input type="checkbox"><label>There will be good times and bad times... how do you want me to handle that? Be persistent or leave you alone?</label></div>
+
+                    <h4>Part 3: Getting Started Checklist</h4>
+                    <div class="checklist-item"><input type="checkbox"><label>Activated TGR account per official instructions.</label></div>
+                    <div class="checklist-item"><input type="checkbox"><label>Wallet funded and understands the ₦45 Providus fee.</label></div>
+                    <div class="checklist-item"><input type="checkbox"><label>Reviewed the TGR Compensation Plan (e.g., Coral Package, 22% Direct Commission, PV).</label></div>
+                    
+                    <h4>Part 4: First Assignments</h4>
+                    <p>Help them create their first assignments with deadlines (e.g., create warm list, get first customer).</p>
+                    <button id="save-game-plan" class="btn-primary">Mark as "New Distributor"</button>
+                </div>
+            </div>`;
+            modalContainer.innerHTML = modalHtml;
+
+            modalContainer.querySelector('#close-game-plan-modal').addEventListener('click', () => modalContainer.innerHTML = '');
+            modalContainer.querySelector('#save-game-plan').addEventListener('click', () => {
+                updateProspect(prospect.id, { status: 'New Distributor' });
+                logInteraction({
+                    prospectId: prospect.id,
+                    type: 'Onboarding',
+                    outcome: 'Game Plan Interview Completed.'
+                });
+                alert(`${prospect.firstName} is now officially a New Distributor!`);
+                modalContainer.innerHTML = '';
+                router();
+            });
         }
         
-
         // --- ROUTER & MAIN APP LOGIC ---
 
-        const router = async () => { /* ... (Same as before) ... */ };
+        const router = () => {
+            appContainer.innerHTML = '<div class="loader"></div>';
+            const hash = window.location.hash || '#';
+            const pathParts = hash.substring(1).split('/');
+            const currentPath = pathParts[0];
+            const prospectId = pathParts[1] || null;
+
+            if (!appState.currentUser) {
+                renderLoginPage();
+                return;
+            }
+
+            appContainer.innerHTML = renderNavbar(appState.currentUser);
+            const mainContent = document.createElement('div');
+            appContainer.appendChild(mainContent);
+            document.getElementById('logout-btn').addEventListener('click', handleLogout);
+
+            try {
+                switch (currentPath) {
+                    case 'dashboard':
+                    case '':
+                        renderDashboardPage(mainContent);
+                        break;
+                    case 'prospects':
+                        if (prospectId) {
+                            renderProspectDetailPage(mainContent, prospectId);
+                        } else {
+                            renderProspectsPage(mainContent);
+                        }
+                        break;
+                    default:
+                        mainContent.innerHTML = '<h2>404 - Page Not Found</h2>';
+                }
+            } catch (error) {
+                console.error("Routing error:", error);
+                mainContent.innerHTML = `<h2>Error loading page: ${error.message}</h2><p>Please try again later.</p>`;
+            }
+        };
+
 
         async function main() {
             appContainer.innerHTML = '<div class="loader"></div>';
             await initDB();
             
+            // Check for a logged-in session
             const session = sessionStorage.getItem('tgr_assistant_session');
             if (session) {
                 appState.currentUser = JSON.parse(session);
             }
             
-            router();
+            router(); // Start the app
         }
 
         // --- APP INITIALIZATION ---
