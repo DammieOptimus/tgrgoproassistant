@@ -534,7 +534,7 @@
                 };
                 addProspect(prospectData);
                 modalContainer.innerHTML = '';
-                window.location.hash = '#prospects'; // Navigate to prospects list
+                window.location.hash = '#prospects';
                 router();
             });
         }
@@ -832,6 +832,7 @@
                         renderDashboardPage(mainContent);
                         break;
                     case 'prospects':
+                        // ***** THE CRITICAL FIX IS HERE *****
                         if (prospectId) {
                             renderProspectDetailPage(mainContent, prospectId);
                         } else {
